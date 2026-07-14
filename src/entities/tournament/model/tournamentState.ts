@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Participant } from '@/entities/participant/types';
 import { Tournament } from '@/entities/tournament/types';
+import {
+  applyMatchWinner,
+  buildDoubleEliminationBracket,
+  TournamentMatch,
+} from '@/entities/tournament/model/doubleElimination';
 import { supabase } from '@/shared/api/supabase';
 
 const duplicateParticipantCode = '23505';
@@ -9,6 +14,7 @@ const duplicateParticipantCode = '23505';
 type TournamentState = {
   participants: Participant[];
   tournament: Tournament | null;
+  matches: TournamentMatch[];
   isLoading: boolean;
   error: string;
   isLocked: boolean;
@@ -18,12 +24,40 @@ type TournamentState = {
   deleteParticipant: (id: string) => Promise<void>;
   runDraw: () => Promise<void>;
   resetTournament: () => Promise<void>;
+  selectMatchWinner: (matchId: string, winnerId: string) => Promise<void>;
 };
 
 const normalizeName = (name: string) => name.trim();
 
+const toTournamentMatch = (match: {
+  id: string;
+  round: number;
+  bracket: 'winners' | 'losers' | 'final';
+  position: number;
+  player1_id: string | null;
+  player2_id: string | null;
+  winner_id: string | null;
+  loser_id: string | null;
+  status: 'pending' | 'ready' | 'in_progress' | 'finished' | 'cancelled';
+}): TournamentMatch => ({
+  id: match.id,
+  round: match.round,
+  bracket: match.bracket,
+  position: match.position,
+  player1_id: match.player1_id,
+  player2_id: match.player2_id,
+  winner_id: match.winner_id,
+  loser_id: match.loser_id,
+  status: match.status === 'finished' ? 'finished' : match.status === 'ready' ? 'ready' : 'pending',
+});
+
 const getErrorMessage = (error: unknown) => {
-  if (typeof error === 'object' && error && 'code' in error && error.code === duplicateParticipantCode) {
+  if (
+    typeof error === 'object' &&
+    error &&
+    'code' in error &&
+    error.code === duplicateParticipantCode
+  ) {
     return 'Участник с таким именем уже зарегистрирован.';
   }
 
@@ -37,6 +71,7 @@ const getErrorMessage = (error: unknown) => {
 export function useTournamentState(): TournamentState {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [tournament, setTournament] = useState<Tournament | null>(null);
+  const [matches, setMatches] = useState<TournamentMatch[]>([]);
   const [isLoading, setIsLoading] = useState(Boolean(supabase));
   const [error, setError] = useState('');
 
@@ -51,16 +86,35 @@ export function useTournamentState(): TournamentState {
 
     const client = supabase;
     setIsLoading(true);
-    const [{ data: participantsData, error: participantsError }, { data: tournamentData, error: tournamentError }] = await Promise.all([
-      client.from('participants').select('id,name,created_at').order('created_at', { ascending: true }),
-      client.from('tournament').select('id,status,created_at,started_at,finished_at').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    const [
+      { data: participantsData, error: participantsError },
+      { data: tournamentData, error: tournamentError },
+      { data: matchesData, error: matchesError },
+    ] = await Promise.all([
+      client
+        .from('participants')
+        .select('id,name,created_at')
+        .order('created_at', { ascending: true }),
+      client
+        .from('tournament')
+        .select('id,status,created_at,started_at,finished_at')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      client
+        .from('matches')
+        .select('id,round,bracket,position,player1_id,player2_id,winner_id,loser_id,status')
+        .order('bracket', { ascending: true })
+        .order('round', { ascending: true })
+        .order('position', { ascending: true }),
     ]);
 
-    if (participantsError || tournamentError) {
-      setError(getErrorMessage(participantsError ?? tournamentError));
+    if (participantsError || tournamentError || matchesError) {
+      setError(getErrorMessage(participantsError ?? tournamentError ?? matchesError));
     } else {
       setParticipants(participantsData ?? []);
       setTournament(tournamentData);
+      setMatches((matchesData ?? []).map(toTournamentMatch));
       setError('');
     }
 
@@ -77,8 +131,21 @@ export function useTournamentState(): TournamentState {
     const client = supabase;
     const channel = client
       .channel('tournament-state')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants' }, () => void loadState())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament' }, () => void loadState())
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'participants' },
+        () => void loadState(),
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tournament' },
+        () => void loadState(),
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'matches' },
+        () => void loadState(),
+      )
       .subscribe();
 
     return () => {
@@ -100,7 +167,9 @@ export function useTournamentState(): TournamentState {
       const trimmedName = normalizeName(name);
       if (!trimmedName) throw new Error('Введите имя участника.');
 
-      const { error: insertError } = await client.from('participants').insert({ name: trimmedName });
+      const { error: insertError } = await client
+        .from('participants')
+        .insert({ name: trimmedName });
       if (insertError) throw new Error(getErrorMessage(insertError));
     },
     [ensureUnlocked],
@@ -114,7 +183,10 @@ export function useTournamentState(): TournamentState {
       const trimmedName = normalizeName(name);
       if (!trimmedName) throw new Error('Введите новое имя участника.');
 
-      const { error: updateError } = await client.from('participants').update({ name: trimmedName }).eq('id', id);
+      const { error: updateError } = await client
+        .from('participants')
+        .update({ name: trimmedName })
+        .eq('id', id);
       if (updateError) throw new Error(getErrorMessage(updateError));
     },
     [ensureUnlocked],
@@ -136,13 +208,62 @@ export function useTournamentState(): TournamentState {
     const client = supabase;
     if (participants.length < 2) throw new Error('Для жеребьевки нужно минимум два участника.');
 
+    const bracket = buildDoubleEliminationBracket(participants);
+    const { error: deleteError } = await client
+      .from('matches')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000');
+    if (deleteError) throw new Error(getErrorMessage(deleteError));
+
+    const { error: insertError } = await client.from('matches').insert(
+      bracket.map((match) => ({
+        bracket: match.bracket,
+        round: match.round,
+        position: match.position,
+        player1_id: match.player1_id,
+        player2_id: match.player2_id,
+        winner_id: match.winner_id,
+        loser_id: match.loser_id,
+        status: match.status,
+      })),
+    );
+    if (insertError) throw new Error(getErrorMessage(insertError));
+
     const { error: updateError } = await client
       .from('tournament')
       .update({ status: 'active', started_at: new Date().toISOString(), finished_at: null })
       .eq('id', tournament?.id ?? '');
 
     if (updateError) throw new Error(getErrorMessage(updateError));
-  }, [participants.length, tournament?.id]);
+  }, [participants, tournament?.id]);
+
+  const selectMatchWinner = useCallback(
+    async (matchId: string, winnerId: string) => {
+      if (!supabase) throw new Error('Supabase не настроен.');
+      const client = supabase;
+      const result = applyMatchWinner(matches, matchId, winnerId);
+
+      for (const patch of result.patches) {
+        const { bracket, round, position, ...values } = patch;
+        const { error: updateError } = await client
+          .from('matches')
+          .update(values)
+          .eq('bracket', bracket)
+          .eq('round', round)
+          .eq('position', position);
+        if (updateError) throw new Error(getErrorMessage(updateError));
+      }
+
+      if (result.isFinished) {
+        const { error: finishError } = await client
+          .from('tournament')
+          .update({ status: 'finished', finished_at: new Date().toISOString() })
+          .eq('id', tournament?.id ?? '');
+        if (finishError) throw new Error(getErrorMessage(finishError));
+      }
+    },
+    [matches, tournament?.id],
+  );
 
   const resetTournament = useCallback(async () => {
     if (!supabase) throw new Error('Supabase не настроен.');
@@ -153,7 +274,35 @@ export function useTournamentState(): TournamentState {
   }, []);
 
   return useMemo(
-    () => ({ participants, tournament, isLoading, error, isLocked, isSupabaseReady, addParticipant, renameParticipant, deleteParticipant, runDraw, resetTournament }),
-    [participants, tournament, isLoading, error, isLocked, isSupabaseReady, addParticipant, renameParticipant, deleteParticipant, runDraw, resetTournament],
+    () => ({
+      participants,
+      tournament,
+      matches,
+      isLoading,
+      error,
+      isLocked,
+      isSupabaseReady,
+      addParticipant,
+      renameParticipant,
+      deleteParticipant,
+      runDraw,
+      resetTournament,
+      selectMatchWinner,
+    }),
+    [
+      participants,
+      tournament,
+      matches,
+      isLoading,
+      error,
+      isLocked,
+      isSupabaseReady,
+      addParticipant,
+      renameParticipant,
+      deleteParticipant,
+      runDraw,
+      resetTournament,
+      selectMatchWinner,
+    ],
   );
 }

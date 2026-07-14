@@ -12,8 +12,17 @@ export function HomePage() {
       <div className="mx-auto grid max-w-6xl gap-8">
         <Hero />
         <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-          <TournamentRegistrationForm addParticipant={tournamentState.addParticipant} isDisabled={tournamentState.isLocked || !tournamentState.isSupabaseReady} isLocked={tournamentState.isLocked} />
-          <TournamentBracket isLocked={tournamentState.isLocked} participants={tournamentState.participants} />
+          <TournamentRegistrationForm
+            addParticipant={tournamentState.addParticipant}
+            isDisabled={tournamentState.isLocked || !tournamentState.isSupabaseReady}
+            isLocked={tournamentState.isLocked}
+          />
+          <TournamentBracket
+            isLocked={tournamentState.isLocked}
+            matches={tournamentState.matches}
+            participants={tournamentState.participants}
+            selectMatchWinner={tournamentState.selectMatchWinner}
+          />
         </div>
         <AdminPanel
           addParticipant={tournamentState.addParticipant}
