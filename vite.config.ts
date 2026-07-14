@@ -6,6 +6,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': '/src',
+      'lucide-react': '/src/shared/ui/lucide-react.tsx',
     },
   },
 });
