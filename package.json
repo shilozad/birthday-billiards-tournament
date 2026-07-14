@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test": "rm -rf .tmp-tests && tsc --module NodeNext --moduleResolution NodeNext --target ES2022 --types node --outDir .tmp-tests src/entities/tournament/model/__tests__/doubleElimination.test.ts && node .tmp-tests/tournament/model/__tests__/doubleElimination.test.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
