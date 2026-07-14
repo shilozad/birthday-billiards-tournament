@@ -1,0 +1,1 @@
+export { TournamentRegistrationForm } from './TournamentRegistrationForm';
