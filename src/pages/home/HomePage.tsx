@@ -1,12 +1,18 @@
 import { TournamentRegistrationForm } from '@/features/tournament-registration';
+import { AdminPanel } from '@/widgets/admin/AdminPanel';
 import { Hero } from '@/widgets/hero';
+import { TournamentBracket } from '@/widgets/tournament-bracket/TournamentBracket';
 
 export function HomePage() {
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.24),_transparent_35%),linear-gradient(135deg,_#020617,_#064e3b)] px-6 py-12">
-      <div className="mx-auto grid min-h-[calc(100vh-6rem)] max-w-6xl items-center gap-10 lg:grid-cols-[1.15fr_0.85fr]">
+    <main className="min-h-screen bg-[#F8F6FB] px-5 py-8 text-[#5D3C84] sm:px-8 lg:px-10">
+      <div className="mx-auto grid max-w-6xl gap-8">
         <Hero />
-        <TournamentRegistrationForm />
+        <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+          <TournamentRegistrationForm />
+          <TournamentBracket />
+        </div>
+        <AdminPanel />
       </div>
     </main>
   );

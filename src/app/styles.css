@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family:
     Inter,
     ui-sans-serif,
@@ -12,11 +12,17 @@
     BlinkMacSystemFont,
     'Segoe UI',
     sans-serif;
+  background: #f8f6fb;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #020617;
+  background: #f8f6fb;
+}
+
+button,
+input {
+  font: inherit;
 }
