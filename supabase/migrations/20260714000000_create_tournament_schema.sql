@@ -105,3 +105,94 @@ create policy "admins can manage matches"
   to authenticated
   using (public.is_admin())
   with check (public.is_admin());
+
+create unique index participants_name_unique_ci_idx on public.participants (lower(trim(name)));
+
+create or replace function public.is_tournament_locked()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.tournament
+    where status in ('active', 'finished')
+  );
+$$;
+
+create or replace function public.prevent_participants_changes_after_draw()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if public.is_tournament_locked() then
+    raise exception 'Participant editing is locked after the draw';
+  end if;
+
+  return coalesce(new, old);
+end;
+$$;
+
+create trigger lock_participants_after_draw
+  before insert or update or delete on public.participants
+  for each row execute function public.prevent_participants_changes_after_draw();
+
+create or replace function public.reset_tournament()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.matches;
+  update public.tournament
+  set status = 'draft',
+      started_at = null,
+      finished_at = null;
+  delete from public.participants;
+
+  if not exists (select 1 from public.tournament) then
+    insert into public.tournament (status) values ('draft');
+  end if;
+end;
+$$;
+
+grant execute on function public.reset_tournament() to anon, authenticated;
+
+drop policy if exists "admins can manage participants" on public.participants;
+
+create policy "participants can be managed before draw"
+  on public.participants
+  for all
+  to anon, authenticated
+  using (not public.is_tournament_locked())
+  with check (not public.is_tournament_locked());
+
+create policy "tournament draw can be started from app"
+  on public.tournament
+  for update
+  to anon, authenticated
+  using (true)
+  with check (status in ('active', 'draft'));
+
+insert into public.tournament (status)
+select 'draft'
+where not exists (select 1 from public.tournament);
+
+do $$
+begin
+  alter publication supabase_realtime add table public.participants;
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.tournament;
+exception
+  when duplicate_object then null;
+end $$;
